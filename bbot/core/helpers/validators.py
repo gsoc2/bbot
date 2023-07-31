@@ -6,7 +6,7 @@ from bbot.core.helpers.url import clean_url
 from bbot.core.helpers.punycode import smart_decode_punycode
 from bbot.core.helpers.misc import split_host_port, make_netloc
 
-log = logging.getLogger("bbot.core.helpers.")
+log = logging.getLogger("bbot.core.helpers.validators")
 
 
 def validator(func):
@@ -56,12 +56,12 @@ def validate_host(host):
             return str(ip)
         except Exception:
             # finally, try DNS_NAME
-            host = smart_decode_punycode(host.lstrip("*."))
+            host = smart_decode_punycode(host)
+            # clean asterisks and clinging dashes
+            host = host.strip("*.-").replace("*", "")
             for r in regexes.event_type_regexes["DNS_NAME"]:
                 if r.match(host):
                     return host
-            if regexes._hostname_regex.match(host):
-                return host
     assert False, f'Invalid hostname: "{host}"'
 
 

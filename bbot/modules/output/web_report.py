@@ -11,9 +11,9 @@ class web_report(BaseOutputModule):
         "css_theme_file": "https://cdnjs.cloudflare.com/ajax/libs/github-markdown-css/5.1.0/github-markdown.min.css",
     }
     options_desc = {"output_file": "Output to file", "css_theme_file": "CSS theme URL for HTML output"}
-    deps_pip = ["markdown"]
+    deps_pip = ["markdown~=3.4.3"]
 
-    def setup(self):
+    async def setup(self):
         html_css_file = self.config.get("css_theme_file", "")
 
         self.html_header = f"""
@@ -32,7 +32,7 @@ class web_report(BaseOutputModule):
         self._prep_output_dir("web_report.html")
         return True
 
-    def handle_event(self, event):
+    async def handle_event(self, event):
         if event.type == "URL":
             parsed = event.parsed
             host = f"{parsed.scheme}://{parsed.netloc}/"
@@ -74,7 +74,7 @@ class web_report(BaseOutputModule):
                 else:
                     self.web_assets[host][event.type].append(html.escape(event.pretty_string))
 
-    def report(self):
+    async def report(self):
         for host in self.web_assets.keys():
             self.markdown += f"# {host}\n\n"
 

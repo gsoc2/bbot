@@ -24,27 +24,44 @@ class BaseCloudProvider:
     def base_tags(self):
         return {f"cloud-{self.name}"}
 
-    def excavate(self, event):
+    def excavate(self, event, http_body):
         base_kwargs = dict(source=event, tags=self.base_tags)
 
         # check for buckets in HTTP responses
-        if event.type == "HTTP_RESPONSE":
-            body = event.data.get("body", "")
+        for event_type, sigs in self.signatures.items():
+            found = set()
+            for sig in sigs:
+                for match in sig.findall(http_body):
+                    kwargs = dict(base_kwargs)
+                    kwargs["event_type"] = event_type
+                    if not match in found:
+                        found.add(match)
+                        if event_type == "STORAGE_BUCKET":
+                            self.emit_bucket(match, **kwargs)
+                        else:
+                            self.emit_event(**kwargs)
+
+    def speculate(self, event):
+        base_kwargs = dict(source=event, tags=self.base_tags)
+
+        if event.type.startswith("DNS_NAME"):
+            # check for DNS_NAMEs that are buckets
             for event_type, sigs in self.signatures.items():
                 found = set()
                 for sig in sigs:
-                    for match in sig.findall(body):
+                    match = sig.match(event.data)
+                    if match:
                         kwargs = dict(base_kwargs)
                         kwargs["event_type"] = event_type
-                        if not match in found:
-                            found.add(match)
+                        if not event.data in found:
+                            found.add(event.data)
                             if event_type == "STORAGE_BUCKET":
-                                self.emit_bucket(match, **kwargs)
+                                self.emit_bucket(match.groups(), **kwargs)
                             else:
                                 self.emit_event(**kwargs)
 
     def emit_bucket(self, match, **kwargs):
-        _, bucket_name, bucket_domain = match
+        bucket_name, bucket_domain = match
         kwargs["data"] = {"name": bucket_name, "url": f"https://{bucket_name}.{bucket_domain}"}
         self.emit_event(**kwargs)
 
@@ -52,7 +69,8 @@ class BaseCloudProvider:
         excavate_module = self.parent_helper.scan.modules.get("excavate", None)
         if excavate_module:
             event = self.dummy_module.make_event(*args, **kwargs)
-            excavate_module.emit_event(event)
+            if event:
+                excavate_module.emit_event(event)
 
     def is_valid_bucket(self, bucket_name):
         return self.bucket_name_regex.match(bucket_name)
@@ -63,11 +81,16 @@ class BaseCloudProvider:
             # its host directly matches this cloud provider's domains
             if isinstance(event.host, str) and self.domain_match(event.host):
                 event.tags.update(self.base_tags)
-                return
-            # or it has a CNAME that matches this cloud provider's domains
-            for rh in event.resolved_hosts:
-                if not self.parent_helper.is_ip(rh) and self.domain_match(rh):
-                    event.tags.update(self.base_tags)
+                # tag as buckets, etc.
+                for event_type, sigs in self.signatures.items():
+                    for sig in sigs:
+                        if sig.match(event.host):
+                            event.add_tag(f"cloud-{event_type}")
+            else:
+                # or it has a CNAME that matches this cloud provider's domains
+                for rh in event.resolved_hosts:
+                    if not self.parent_helper.is_ip(rh) and self.domain_match(rh):
+                        event.tags.update(self.base_tags)
 
     def domain_match(self, s):
         for r in self.domain_regexes:
