@@ -324,7 +324,7 @@ class BaseModule:
     async def _worker(self):
         async with self.scan.acatch(context=self._worker):
             try:
-                while not self.scan.stopping:
+                while not self.scan.stopping and not self.errored:
                     # hold the reigns if our outgoing queue is full
                     if self._qsize > 0 and self.outgoing_event_queue.qsize() >= self._qsize:
                         await asyncio.sleep(0.1)
@@ -348,8 +348,6 @@ class BaseModule:
                         self.debug(f"Got {event} from {getattr(event, 'module', 'unknown_module')}")
                         async with self._task_counter.count(f"event_postcheck({event})"):
                             acceptable, reason = await self._event_postcheck(event)
-                        if not acceptable:
-                            self.debug(f"Not accepting {event} because {reason}")
                         if acceptable:
                             if event.type == "FINISHED":
                                 context = f"{self.name}.finish()"
@@ -362,9 +360,10 @@ class BaseModule:
                                 async with self.scan.acatch(context), self._task_counter.count(context):
                                     await self.handle_event(event)
                                 self.debug(f"Finished handling {event}")
+                        else:
+                            self.debug(f"Not accepting {event} because {reason}")
             except asyncio.CancelledError:
                 self.log.trace("Worker cancelled")
-                self.trace()
                 raise
         self.log.trace(f"Worker stopped")
 
@@ -506,7 +505,7 @@ class BaseModule:
         except AttributeError:
             self.debug(f"Not in an acceptable state to queue outgoing event")
 
-    def set_error_state(self, message=None):
+    def set_error_state(self, message=None, clear_outgoing_queue=False):
         if not self.errored:
             log_msg = f"Setting error state for module {self.name}"
             if message is not None:
@@ -522,6 +521,11 @@ class BaseModule:
                 # set queue to None to prevent its use
                 # if there are leftover objects in the queue, the scan will hang.
                 self._incoming_event_queue = False
+
+            if clear_outgoing_queue:
+                with suppress(asyncio.queues.QueueEmpty):
+                    while 1:
+                        self.outgoing_event_queue.get_nowait()
 
     # override in the module to define different values to comprise the hash
     def get_per_host_hash(self, event):

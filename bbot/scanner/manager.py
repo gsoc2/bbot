@@ -158,8 +158,6 @@ class ScanManager:
             for provider in self.scan.helpers.cloud.providers.values():
                 provider.tag_event(event)
 
-            event_is_duplicate = self.is_duplicate_event(event)
-
             # Scope shepherding
             # here, we buff or nerf the scope distance of an event based on its attributes and certain scan settings
             event_is_duplicate = self.is_duplicate_event(event)
@@ -332,7 +330,7 @@ class ScanManager:
             if not dup and -1 < event.scope_distance < 1:
                 self.scan.word_cloud.absorb_event(event)
             for mod in self.scan.modules.values():
-                if not dup or mod.accept_dupes:
+                if not dup or mod.accept_dupes or (mod._type == "output" and event._force_output):
                     await mod.queue_event(event)
 
     async def _worker_loop(self):
@@ -347,6 +345,10 @@ class ScanManager:
 
         except Exception:
             log.critical(traceback.format_exc())
+
+    def kill_module(self, module_name, message=None):
+        module = self.scan.modules[module_name]
+        module.set_error_state(message=message, clear_outgoing_queue=True)
 
     @property
     def modules_by_priority(self):

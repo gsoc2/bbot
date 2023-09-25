@@ -24,7 +24,6 @@ from bbot.core.helpers import (
     smart_decode,
     get_file_extension,
     validators,
-    smart_decode_punycode,
     tagify,
 )
 
@@ -845,6 +844,13 @@ class HTTP_RESPONSE(URL_UNVERIFIED, DictEvent):
 
 class VULNERABILITY(DictHostEvent):
     _always_emit = True
+    severity_colors = {
+        "CRITICAL": "🟪",
+        "HIGH": "🟥",
+        "MEDIUM": "🟧",
+        "LOW": "🟨",
+        "UNKNOWN": "⬜",
+    }
 
     def sanitize_data(self, data):
         self.add_tag(data["severity"].lower())
@@ -936,6 +942,25 @@ class WEBSCREENSHOT(DictHostEvent):
     _always_emit = True
 
 
+class AZURE_TENANT(DictEvent):
+    _always_emit = True
+
+
+class WAF(DictHostEvent):
+    _always_emit = True
+
+    class _data_validator(BaseModel):
+        url: str
+        host: str
+        WAF: str
+        info: Optional[str]
+        _validate_url = validator("url", allow_reuse=True)(validators.validate_url)
+        _validate_host = validator("host", allow_reuse=True)(validators.validate_host)
+
+    def _pretty_string(self):
+        return self.data["WAF"]
+
+
 def make_event(
     data,
     event_type=None,
@@ -971,9 +996,7 @@ def make_event(
         return data
     else:
         if event_type is None:
-            if isinstance(data, str):
-                data = smart_decode_punycode(data)
-            event_type = get_event_type(data)
+            event_type, data = get_event_type(data)
             if not dummy:
                 log.debug(f'Autodetected event type "{event_type}" based on data: "{data}"')
 
